@@ -23,8 +23,8 @@ The requirements are boiled down signficantly, but still reflect the general req
 - A geodesic emerald shader
 - Requirements: write shaders
 ## [P7](https://pages.github.com/IyadHamid/GraphicsDemos/P7/P7.html)
-- ???
-- Requirements: write simple graphics pipeline
+- A simple cube with a procedural POM shader
+- Requirements: use webgl and shaders
 ## [P8](https://pages.github.com/IyadHamid/GraphicsDemos/P8/P8.html)
-- ???
-- Requirements: ???
+- Baked lighting from Blender with added specular lighting
+- Requirements: use textures in webgl
