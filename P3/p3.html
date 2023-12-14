@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Iyad Hamid P3</title>
+</head>
+<body>
+    <div style="max-width: 640px;margin: auto;">
+        <canvas id="canvas-2d" width="640" height="640" style="border:1px solid #000"></canvas>
+        <br>
+        <input type="range" id="segments" min="1" max="6" value="2" step="1" style="width: 80%;" /><label for="segments">Segments</label>
+        <br>
+        <input type="checkbox" id="animate" onchange="draw()"/><label for="animate">Animate</label>
+        <br>
+        <input type="checkbox" id="trail"/><label for="trail">Trail</label>
+        <br>
+        <br>
+        This shows a psuedo-n-pendulum in motion. It is a psuedo as the physics isn't properly calculated but still looks interesting enough.
+    </div>
+</body>
+
+<script type="text/javascript" src="gl-matrix-min.js"></script>
+<script>
+
+    const canvas = document.getElementById('canvas-2d');
+    const segments_slider = document.getElementById('segments');
+    const animate_checkbox = document.getElementById('animate');
+    const trail_checkbox = document.getElementById('trail');
+
+    const ctx = canvas.getContext('2d');
+    
+    // initial points for pendulum
+    // assume all mass is at joints
+    let theta = []; // angular position
+    let omega = []; // angular velocity
+    let transforms = [ mat3.create(), mat3.create() ]
+    const fg = [0, -5]; // assume mass=1 and gravitational acceleration=5
+    const dt = 1.0/60.0; // assume 60hz
+
+
+    let screen_transform = mat3.create();
+    mat3.fromScaling(screen_transform, [100, -100])
+    mat3.translate(screen_transform, screen_transform, [3, -1.5])
+
+
+    function ang2cart(t) { return [Math.cos(t), Math.sin(t)]; }
+    function tangent2cart(t) { return [-Math.sin(t), Math.cos(t)]; }
+
+    function ctxMoveTo(v) { ctx.moveTo(v[0], v[1]); }
+    function ctxLineTo(v) { ctx.lineTo(v[0], v[1]); }
+
+    // calculates physics for linkage at index with force, returns normal force on linkage
+    function calculatePhysics(idx, f) {
+        let inverse = mat3.create();
+        mat3.invert(inverse, transforms[idx]);
+
+        let f_local = vec2.create();
+        vec2.transformMat3(f_local, f, transforms[idx]); // transform force to local space (normal, tangent)
+
+        // radius is 1, so linear <=> angular; mass is 1, so force <=> acceleration
+        omega[idx] += f_local[1] * dt;
+        omega[idx] *= 0.999; // add drag to prevent too much energy getting added to the system
+        theta[idx] += omega[idx] * dt;
+
+        let centripetal_force = vec2.create();            
+        vec2.transformMat3(centripetal_force, [f_local[0], 0], inverse); // transform force to word space
+
+        return centripetal_force;
+    }
+
+    // draws linkage with transform
+    function drawLinkage(transform) {
+        let v0 = [0, 0];
+        let v1 = [1, 0];
+
+        vec2.transformMat3(v0, v0, transform);
+        vec2.transformMat3(v1, v1, transform);
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'oklch(80% 0 0)';
+        ctx.lineWidth = 2;
+        ctxMoveTo(v0);
+        ctxLineTo(v1);
+        ctx.stroke();
+    }
+
+    // draws join with transform
+    function drawJoint(transform) {
+        let v = [1, 0];
+
+        vec2.transformMat3(v, v, transform);
+
+        ctx.beginPath();
+        ctx.fillStyle = 'black';
+        ctx.ellipse(v[0], v[1], 5, 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+    }
+
+    function draw() {
+        if (ctx == null) {
+            console.warn("failed to get 2d context");
+            return;
+        }
+        if (trail_checkbox.checked) {
+            ctx.fillStyle = 'oklch(100% 0 0 / .05)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+        }
+        else
+            ctx.reset();
+
+
+        let m = mat3.create();
+        mat3.identity(m);
+
+        for (let i = 0; i < theta.length; ++i) {
+            mat3.rotate(m, m, theta[i]); // rotate to linkage's angle
+
+            transforms[i] = mat3.clone(m);
+
+            let full_transform = mat3.create();
+            mat3.mul(full_transform, screen_transform, m);
+            drawLinkage(full_transform);
+
+            mat3.translate(m, m, [1,0]); // move to end of linkage
+        }
+        // draw joints on top of all linkages   
+        for (let i = 0; i < theta.length; ++i) {
+            let full_transform = mat3.create();
+            mat3.mul(full_transform, screen_transform, transforms[i]);
+            drawJoint(full_transform);
+        }
+
+        
+        let f = vec2.clone(fg);
+        for (let i = theta.length; i > 0; --i) {
+            f = calculatePhysics(i-1, f);
+            vec2.add(f, f, fg);
+        }
+        
+
+        if (animate_checkbox.checked)
+            window.requestAnimationFrame(draw);
+    }
+
+    function changeSegments() {
+        let n = parseInt(segments.value);
+        theta = Array(n).fill(-.1);
+        omega = Array(n).fill(-.1);
+    }
+
+    window.addEventListener("load", draw);
+    segments_slider.addEventListener("input", changeSegments);
+    changeSegments();
+    draw();
+</script>
+</html>

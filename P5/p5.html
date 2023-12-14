@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Iyad Hamid P5</title>
+</head>
+<body>
+    <div style="max-width: 640px;margin: auto;">
+        <canvas id="canvas-2d" width="640" height="640" style="border:1px solid #000"></canvas>
+        <br>
+        <input type="range" id="growth" min="1" max="10" value="3" step="1" style="width: 80%;" /><label for="growth">Growth</label>
+        <br>
+        <input type="range" id="angle" min="0" max="1" value="0.4" step="any" style="width: 80%;" /><label for="angle">Camera Angle</label>
+        <br>
+        <br>
+        This draws a 3D tree-like-fractal using L-systems with a camera on a circular track. 
+        The L-systems is completely modular and uses deferred drawing for z-ordered lines. 
+        Due to this being drawn through L-systems, higher growth has 'transparency' due to subpixel lines.
+</body>
+
+<script type="text/javascript" src="gl-matrix-min.js"></script>
+<script>
+
+    const canvas = document.getElementById('canvas-2d');
+    const growth_slider = document.getElementById('growth');
+    const angle_slider = document.getElementById('angle');
+
+    const ctx = canvas.getContext('2d');
+
+    let transformStack;
+    let allSegments;
+    let time = 0.0;
+
+
+    let cameraTransform = mat4.create();
+    let ndcTransform = mat4.create();
+    
+    mat4.fromTranslation(ndcTransform, [canvas.width/2,canvas.height,0]); 
+    mat4.scale(ndcTransform, ndcTransform, [1,-1,1]);
+    
+    function ctxMoveTo(v) { ctx.moveTo(v[0], v[1]); }
+    function ctxLineTo(v) { ctx.lineTo(v[0], v[1]); }
+    
+    function lastTransform() { return transformStack[transformStack.length - 1]; }
+    
+    function transformSave() { transformStack.push(mat4.clone(lastTransform())); }
+    function transformRestore() { transformStack.pop(); }
+
+    // circle on the xy plane
+    function cameraCurve(t) { 
+        return vec3.fromValues(
+            Math.cos(t*2.0*Math.PI), 
+            Math.sin(t*2.0*Math.PI), 
+            0
+        ); 
+    }
+
+    function nextLSystem(str, rules) {
+        next = "";
+        for (let i = 0; i < str.length; ++i)
+            next += (str[i] in rules) ? rules[str[i]] : str[i];
+        return next;
+    }
+
+    function drawLSystem(str, iterations, rules, draw_rules) {
+        for (let i = 0; i < iterations; ++i)
+            str = nextLSystem(str, rules);
+        for (let i = 0; i < str.length; ++i) if (str[i] in draw_rules)
+            draw_rules[str[i]]();
+    }
+
+    function addSeg(length) {
+        points = [ [0,0,0,1], [0,0,length,1] ];
+        
+        let last = vec4.clone(points[1]);
+
+        let transform = mat4.create();
+        mat4.multiply(transform, cameraTransform, lastTransform());
+        for (let i = 0; i < points.length; ++i) {
+            vec4.transformMat4(points[i], points[i], transform);
+            
+            let w = points[i][3]; // normalize w
+            vec4.divide(points[i], points[i], [w,w,w,w]);
+            
+            vec4.transformMat4(points[i], points[i], ndcTransform);
+        }
+        
+        let height = Math.sqrt(transformStack.length / (parseFloat(growth_slider.value)+1));
+
+        let w = 10 * (1-height) + 1 * height; // width
+        let l = 50; //luminosity
+        let c = .05 * (1-height) + .2 * height; // chroma
+        let h = 50 * (1-height) + 120 * height; // hue
+        if (height > .95) // override for leaves
+            [w, l, c, h] = [6, 80, .1, 340];
+
+        let segInfo = [points, [w, `oklch(${l}% ${c} ${h})`]];
+        let depth = points[0][2];
+        if (depth in allSegments)
+            allSegments[depth].push(segInfo);
+        else
+            allSegments[depth] = [segInfo];
+
+
+        mat4.translate(transformStack[transformStack.length-1], lastTransform(), last);
+    }
+
+    function rotate(angle, axis) { mat4.rotate(transformStack[transformStack.length-1], lastTransform(), angle, axis); }
+
+    function draw() {
+        if (ctx == null) {
+            console.warn("failed to get 2d context");
+            return;
+        }
+        ctx.reset();
+        allSegments = {};
+        transformStack = [mat4.create()];
+
+        let treeScale = Math.pow(2, 5-parseFloat(growth_slider.value));
+        mat4.fromScaling(transformStack[0], [treeScale, treeScale, treeScale])
+
+        let eye = cameraCurve(parseFloat(angle_slider.value));
+        let lookAtTransform = mat4.create();
+        mat4.lookAt(lookAtTransform, eye, [0,0,0], [0,0,1]);
+        
+        let projTransform = mat4.create();
+        mat4.ortho(projTransform,-1/2,1/2,-1/2,1/2,0,100);
+
+        mat4.multiply(cameraTransform, projTransform, lookAtTransform);
+        
+
+        drawLSystem(
+            "X", 
+            growth_slider.value, 
+            { 
+                "X": "F$G+[!X]+[!GX]+[!X]+", 
+                "F": "FF", 
+                "G": "GG"
+            }, 
+            { 
+                "F": () => addSeg(5),
+                "G": () => addSeg(2),
+                "$": () => rotate(Math.PI/16 , [1,0,0]),
+                "!": () => rotate(Math.PI/6  , [0,1,0]),
+                "+": () => rotate(Math.PI*2/3, [0,0,1]),
+                "]": () => transformRestore(),
+                "[": () => transformSave(), 
+            }
+        );
+
+        // draw in order of depth (farthest first)
+        for (const [depth,segs] of Object.entries(allSegments).reverse()) {
+            for (const s of segs) {
+                ctx.beginPath();
+                ctx.lineWidth = s[1][0];
+                ctx.strokeStyle = s[1][1];
+                ctxMoveTo(s[0][0]);
+                ctxLineTo(s[0][1]);
+                ctx.stroke();
+            }
+        }
+        
+
+    }
+
+    window.addEventListener("load", draw);
+    growth_slider.addEventListener("input", draw);
+    angle_slider.addEventListener("input", draw);
+    draw();
+</script>
+</html>

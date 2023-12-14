@@ -1,0 +1,144 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Iyad Hamid P1</title>
+</head>
+<body>
+    <div style="max-width: 640px;margin: auto;">
+        <canvas id="canvas-2d" width="640" height="480" style="border:1px solid #000"></canvas>
+        <br>
+        <input type="range" id="view" min="-3.14159" max="3.14159" value="0" step="any" style="width: 100%;" />
+        <input type="range" id="x" min="-1" max="10" value="1" step="any" style="width: 45%;float: left;" />
+        <input type="range" id="y" min="-1" max="10" value="1" step="any" style="width: 45%;float: right;" />
+        <br>
+        <br>
+        This is a 2d raycaster like Wolfenstein 3d. There are angle, x, and y movement sliders.
+    </div>
+</body>
+
+<script>
+
+    const canvas = document.getElementById('canvas-2d');
+    const view_slider = document.getElementById('view');
+    const x_slider = document.getElementById('x');
+    const y_slider = document.getElementById('y');
+
+    const ctx = canvas.getContext('2d');
+    
+    const fov = 0.7853975;
+        
+    const map = [
+        "# # ####",
+        "#     # ",
+        "        ",
+        "    #  #",
+        "###### #"
+    ];
+
+    const sky_l = 80;
+    const sky_c = .1;
+    const sky_h = 240;
+
+    function drawShapesToMakeSureIPassTheAssignment() {
+        let offset = -parseFloat(view_slider.value) / 3.14159 * canvas.width * 3 + canvas.width / 2;
+
+        ctx.beginPath();
+        ctx.fillStyle = 'yellow';
+        ctx.lineWidth = 5;
+        ctx.moveTo(offset + 0 , 10);
+        ctx.lineTo(offset + 15, 20);
+        ctx.lineTo(offset + 10, 40);
+        ctx.lineTo(offset - 10, 40);
+        ctx.lineTo(offset - 15, 20);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.strokeStyle = 'orange';
+        ctx.lineWidth = 2;
+        ctx.moveTo(offset + 0 , 10);
+        ctx.lineTo(offset + 10, 40);
+        ctx.lineTo(offset - 15, 20);
+        ctx.lineTo(offset + 15, 20);
+        ctx.lineTo(offset - 10, 40);
+        ctx.closePath();
+        ctx.stroke();
+    }
+
+    function drawBackground() {        
+	    ctx.beginPath();
+        ctx.fillStyle = `oklch(50% .05 0)`;
+        ctx.rect(0,0,canvas.width,canvas.height);
+        ctx.closePath();
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.fillStyle = `oklch(${sky_l}% ${sky_c} ${sky_h})`;
+        ctx.rect(0,0,canvas.width,canvas.height/2);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    function drawWalls() {
+        const max_dist = 10.0
+        const dist_step = 0.05;
+
+        let view_val = parseFloat(view_slider.value);
+        let x_val = parseFloat(x_slider.value);
+        let y_val = parseFloat(y_slider.value);
+
+        for (let x = 0.0; x < canvas.width; x += 2) {
+            let current_angle = (x / canvas.height) * fov + view_val;
+            let x_slope = Math.cos(current_angle);
+            let y_slope = Math.sin(current_angle);
+
+            let dist = 0.0; 
+            for (; dist < max_dist; dist += dist_step) {
+                let row = map[Math.round(y_slope * dist + y_val)];
+                if (row == null) {
+                    dist = max_dist;
+                    break;
+                }
+                let c = row.charAt(Math.round(x_slope * dist + x_val));
+                if (c == '#')
+                    break;
+            }
+   
+            if (dist < max_dist - dist_step) {
+                // map 0..max_dist -> wall_height..0
+                let norm_z = dist / max_dist;
+                let half_y_height = (-norm_z + 1) * canvas.height / 3
+                
+                ctx.beginPath();
+                ctx.lineWidth = 2;
+                // add fog using with linear luminosity and chromacity changes
+                ctx.strokeStyle = `oklch(${norm_z * sky_l}% ${norm_z * sky_c} ${sky_h})`;
+                ctx.moveTo(x, canvas.height/2 - half_y_height);
+                ctx.lineTo(x, canvas.height/2 + half_y_height);
+                ctx.stroke();
+            }
+
+
+        }
+    }
+    
+    function draw() {
+        if (ctx == null) {
+            console.warn("failed to get 2d context");
+            return;
+        }
+
+	
+        drawBackground();
+	    ctx.save();
+	    drawWalls();
+        drawShapesToMakeSureIPassTheAssignment();
+	    ctx.restore();
+    }
+    
+    window.addEventListener("load", draw);
+    view_slider.addEventListener("input", draw);
+    x_slider.addEventListener("input", draw);
+    y_slider.addEventListener("input", draw);
+</script>
+</html>

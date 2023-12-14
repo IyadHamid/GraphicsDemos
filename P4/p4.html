@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Iyad Hamid P4</title>
+</head>
+<body>
+    <div style="max-width: 640px;margin: auto;">
+        <canvas id="canvas-2d" width="640" height="640" style="border:1px solid #000"></canvas>
+        <br>
+        <input type="range" id="offset" min="0" max="2" value="0" step="any" style="width: 80%;" /><label for="offset">Offset</label>
+        <br>
+        <input type="range" id="speed" min="0" max="1" value="0.5" step="any" style="width: 80%;" /><label for="speed">Speed</label>
+        <br>
+        <input type="checkbox" id="animate" onchange="draw()"/><label for="animate">Animate</label>
+        <br>
+        <br>
+        A car driving in a track with a nearby retention pond all made up from closed cubic hermite splines.
+    </div>
+</body>
+
+<script type="text/javascript" src="gl-matrix-min.js"></script>
+<script>
+
+    const canvas = document.getElementById('canvas-2d');
+    const offset_slider = document.getElementById('offset');
+    const speed_slider = document.getElementById('speed');
+    const animate_checkbox = document.getElementById('animate');
+
+    const ctx = canvas.getContext('2d');
+    
+    let time = 0.0;
+    let car_pos = 0.0;
+
+    function ctxMoveTo(v) { ctx.moveTo(v[0], v[1]); }
+    function ctxLineTo(v) { ctx.lineTo(v[0], v[1]); }
+
+    function ctxCurve(f, min, max, resolution) { const step = (max - min)/resolution; for (let i = min; i < max; i += step) ctxLineTo(f(i)); }
+
+    let hermite = function(t) { return [ 2*t*t*t-3*t*t+1, t*t*t-2*t*t+t, -2*t*t*t+3*t*t, t*t*t-t*t ]; }
+    let hermiteDt = function(t) { return [ 6*t*t-6*t, 3*t*t-4*t+1, -6*t*t+6*t, 3*t*t-2*t]; }
+	let cubic = function(basis, P0, P1, t) {
+	    let b = basis(t);
+        return [ 
+            P0[0][0]*b[0] + P0[1][0]*b[1] + P1[0][0]*b[2] + P1[1][0]*b[3],
+            P0[0][1]*b[0] + P0[1][1]*b[1] + P1[0][1]*b[2] + P1[1][1]*b[3]
+        ];
+	}
+
+    const track_points = [
+        [ [200, 100], [ 100, 10 ] ],
+        [ [500, 200], [ 10 , 300] ],
+        [ [500, 500], [-100, 50 ] ],
+        [ [450, 450], [ 0  ,-50 ] ],
+        [ [450, 250], [ 0  ,-100] ],
+        [ [300, 200], [-100, 0  ] ],
+        [ [250, 150], [-80 , 10 ] ],
+        [ [100, 150], [ 0  ,-250] ],
+    ];
+    
+    const pond_points = [
+        [ [100, 500], [ 100, 10 ] ],
+        [ [200, 450], [ 100, 10 ] ],
+        [ [300, 500], [ 500,-50 ] ],
+        [ [150, 300], [-400, 0  ] ],
+    ];
+
+    // map t (0->1) to each curve segment and closes curve
+    let curve = function(basis, points, t) {
+        t = (t % 1) * points.length;
+        let i = Math.floor(t);
+        let j = (i + 1) % points.length;
+        return cubic(basis, points[i], points[j], t % 1);
+    }
+
+    function drawGround() {
+        ctx.fillStyle = 'oklch(60% .1 130)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+    }
+
+    function drawTrack(resolution) {
+        let track = curve.bind(null, hermite, track_points);
+
+        ctx.beginPath();
+        ctx.lineWidth = 40;
+        ctx.strokeStyle = 'oklch(80% .1 80)';
+        ctxCurve(track, 0.0, 1.0, resolution);
+        ctx.closePath();
+        ctx.stroke();
+
+        ctx.beginPath();
+        ctx.lineWidth = 20;
+        ctx.strokeStyle = 'oklch(55% 0 0)';
+        ctxCurve(track, 0.0, 1.0, resolution);
+        ctx.closePath();
+        ctx.stroke();
+    }
+
+    function drawCar(t) {
+        let pos = curve(hermite, track_points, t);
+        let dir = curve(hermiteDt, track_points, t+.02); // preemptive turning
+        vec2.normalize(dir, dir);
+        ctx.save();
+
+        // construct rotation+translation transform manually (don't need to convert to radians)
+        ctx.transform(dir[1], -dir[0], dir[0], dir[1], pos[0], pos[1]);
+
+        ctx.beginPath();
+        ctx.fillStyle = 'oklch(40% .2 0)';
+        ctx.rect(-5, -5, 10, 20); 
+        ctx.fill();
+        
+        ctx.beginPath();
+        ctx.fillStyle = 'oklch(60% .2 0)';
+        ctx.rect(-5, 0, 10, 8); 
+        ctx.fill();
+
+        ctx.restore();
+    }
+
+    function drawTireMarks(t, resolution) {
+        let track = curve.bind(null, hermite, track_points);
+        let trackDt = curve.bind(null, hermiteDt, track_points);
+        function curveOffset(offset, i) {
+            let p = trackDt(i); // use derivative to get curve normal
+            vec2.normalize(p, p);
+            vec2.scaleAndAdd(p, track(i), [-p[1], p[0]], offset)
+            return p;
+        }
+
+        const offset = 4.0;
+
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = 'oklch(30% 0 0)';
+        ctx.beginPath();
+        ctxCurve(curveOffset.bind(null, offset), t+0.9, t+1.0, resolution);
+        ctx.stroke();
+        ctx.beginPath();
+        ctxCurve(curveOffset.bind(null,-offset), t+0.9, t+1.0, resolution);
+        ctx.stroke();
+
+    }
+
+    function drawPond(resolution) {
+        ctx.beginPath();
+        ctx.lineWidth = Math.sin(time / 120) * 5 + 45;
+        ctx.fillStyle = 'oklch(50% .1 240)';
+        ctx.strokeStyle = 'oklch(60% .1 240)';
+        let pond = curve.bind(null, hermite, pond_points);
+        ctxCurve(pond, 0.0, 1.0, resolution);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+    }
+
+    function draw() {
+        if (ctx == null) {
+            console.warn("failed to get 2d context");
+            return;
+        }
+        ctx.reset()
+        
+        drawGround();
+
+        drawTrack(100);
+
+        let t = car_pos + parseFloat(offset_slider.value);
+
+        drawTireMarks(t, 100);
+
+        drawCar(t);
+
+        drawPond(100);
+
+        if (animate_checkbox.checked) {
+            ++time;
+            car_pos += parseFloat(speed_slider.value) / 120;
+            window.requestAnimationFrame(draw);
+        }
+    }
+
+    function sliderEvent() {
+        if (animate_checkbox.checked)
+            return;
+        draw();
+    }
+
+    window.addEventListener("load", draw);
+    offset_slider.addEventListener("input", sliderEvent);
+</script>
+</html>
